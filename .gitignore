@@ -1,0 +1,57 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+.conda/
+
+# ---- Pretrained weights & checkpoints ----
+# e.g. sam_vit_b_01ec64.pth, ViT-B_16.npz (download separately, see README)
+*.pth
+*.pt
+*.ckpt
+*.npz
+*.safetensors
+checkpoints/
+
+# ---- Training / inference outputs ----
+# SAMed: train.sh -> outputs/, test.py -> results/ (incl. predictions/, test_log/)
+# TransUNet: train.py -> ../model/, test.py -> ../predictions
+outputs/
+results/
+model/
+predictions/
+runs/
+*.nii
+*.nii.gz
+events.out.tfevents.*
+wandb/
+
+# ---- Datasets ----
+data/
+datasets_raw/
+*.npy
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- IDE / editor ----
+.vscode/
+.idea/
+*.swp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Claude Code local settings ----
+.claude/settings.local.json
