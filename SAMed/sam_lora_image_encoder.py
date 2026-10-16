@@ -1,6 +1,9 @@
 from segment_anything import build_sam, SamPredictor
 from segment_anything import sam_model_registry
+import logging
 import math
+import os
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,6 +13,24 @@ from segment_anything.modeling import Sam
 from safetensors import safe_open
 from safetensors.torch import save_file
 from icecream import ic
+
+
+def save_checkpoint(obj, path, retries=3):
+    """torch.save to a temp file, check it loads back, then rename into place, retrying on
+    failure. A one-off Windows write error ("ios_base::badbit set") once truncated a
+    TransUNet checkpoint at the end of a 13-hour run, crashing training and losing it."""
+    tmp = path + '.tmp'
+    for attempt in range(1, retries + 1):
+        try:
+            torch.save(obj, tmp)
+            torch.load(tmp, map_location='cpu', weights_only=True)
+            os.replace(tmp, path)
+            return
+        except Exception as e:
+            logging.warning('saving %s failed (attempt %d/%d): %s', path, attempt, retries, e)
+            if attempt == retries:
+                raise
+            time.sleep(30)
 
 
 class _LoRA_qkv(nn.Module):
@@ -135,7 +156,7 @@ class LoRA_Sam(nn.Module):
                 mask_decoder_tensors[key] = value
 
         merged_dict = {**a_tensors, **b_tensors, **prompt_encoder_tensors, **mask_decoder_tensors}
-        torch.save(merged_dict, filename)
+        save_checkpoint(merged_dict, filename)
 
     def load_lora_parameters(self, filename: str) -> None:
         r"""Only safetensors is supported now.

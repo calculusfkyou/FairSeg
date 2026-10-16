@@ -24,6 +24,24 @@ def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight:floa
     loss = (1 - dice_weight) * loss_ce + dice_weight * loss_dice
     return loss, loss_ce, loss_dice
 
+def save_checkpoint(obj, path, retries=3):
+    """torch.save to a temp file, check it loads back, then rename into place, retrying on
+    failure. A one-off Windows write error ("ios_base::badbit set") once truncated the
+    final checkpoint of a 13-hour run, which crashed train.py and lost the weights."""
+    tmp = path + '.tmp'
+    for attempt in range(1, retries + 1):
+        try:
+            torch.save(obj, tmp)
+            torch.load(tmp, map_location='cpu', weights_only=True)
+            os.replace(tmp, path)
+            return
+        except Exception as e:
+            logging.warning('saving %s failed (attempt %d/%d): %s', path, attempt, retries, e)
+            if attempt == retries:
+                raise
+            time.sleep(30)
+
+
 # Module level (not nested in trainer_fairseg) so DataLoader workers can pickle it:
 # Windows starts workers with spawn, which cannot pickle local functions.
 def seed_worker(seed, worker_id):
@@ -98,12 +116,12 @@ def trainer_fairseg(args, model, snapshot_path):
         save_interval = 50  # int(max_epoch/6)
         if epoch_num > int(max_epoch / 2) and (epoch_num + 1) % save_interval == 0:
             save_mode_path = os.path.join(snapshot_path, 'epoch_' + str(epoch_num) + '.pth')
-            torch.save(model.state_dict(), save_mode_path)
+            save_checkpoint(model.state_dict(), save_mode_path)
             logging.info("save model to {}".format(save_mode_path))
 
         if epoch_num >= max_epoch - 1:
             save_mode_path = os.path.join(snapshot_path, 'epoch_' + str(epoch_num) + '.pth')
-            torch.save(model.state_dict(), save_mode_path)
+            save_checkpoint(model.state_dict(), save_mode_path)
             logging.info("save model to {}".format(save_mode_path))
             iterator.close()
             break
