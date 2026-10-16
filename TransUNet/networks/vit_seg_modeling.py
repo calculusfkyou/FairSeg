@@ -7,7 +7,7 @@ import copy
 import logging
 import math
 
-from os.path import join as pjoin
+from posixpath import join as pjoin  # npz keys always use "/", even on Windows
 
 import torch
 import torch.nn as nn

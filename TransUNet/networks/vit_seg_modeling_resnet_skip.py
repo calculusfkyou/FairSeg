@@ -1,6 +1,6 @@
 import math
 
-from os.path import join as pjoin
+from posixpath import join as pjoin  # npz keys always use "/", even on Windows
 from collections import OrderedDict
 
 import torch

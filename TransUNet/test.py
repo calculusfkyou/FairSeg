@@ -36,6 +36,7 @@ parser.add_argument('--n_skip', type=int, default=0, help='using number of skip-
 parser.add_argument('--vit_name', type=str, default='ViT-B_16', help='select one vit model')
 
 parser.add_argument('--test_save_dir', type=str, default='../predictions', help='saving prediction as nii!')
+parser.add_argument('--snapshot', type=str, default='', help='checkpoint to test; default: last epoch under the train.py snapshot path')
 parser.add_argument('--deterministic', type=int,  default=1, help='whether use deterministic training')
 parser.add_argument('--base_lr', type=float,  default=0.01, help='segmentation network learning rate')
 parser.add_argument('--seed', type=int, default=1234, help='random seed')
@@ -75,7 +76,7 @@ if __name__ == "__main__":
 
     # name the same snapshot defined in train script!
     args.exp = 'TU_' + dataset_name + str(args.img_size) 
-    snapshot_path = "/data/home/tiany/Projects/project_TransUNet/model/{}/{}".format(args.exp, 'TU')
+    snapshot_path = "../model/{}/{}".format(args.exp, 'TU')  # same root as train.py
     snapshot_path = snapshot_path + '_pretrain' if args.is_pretrain else snapshot_path
     snapshot_path += '_' + args.vit_name
     snapshot_path = snapshot_path + '_skip' + str(args.n_skip)
@@ -96,8 +97,11 @@ if __name__ == "__main__":
         config_vit.patches.grid = (int(args.img_size/args.vit_patches_size), int(args.img_size/args.vit_patches_size))
     net = ViT_seg(config_vit, img_size=args.img_size, num_classes=config_vit.n_classes).cuda()
 
-    snapshot = os.path.join(snapshot_path, 'best_model.pth')
-    if not os.path.exists(snapshot): snapshot = snapshot.replace('best_model', 'epoch_'+str(args.max_epochs-1))
+    if args.snapshot:
+        snapshot = args.snapshot
+    else:
+        snapshot = os.path.join(snapshot_path, 'best_model.pth')
+        if not os.path.exists(snapshot): snapshot = snapshot.replace('best_model', 'epoch_'+str(args.max_epochs-1))
     net.load_state_dict(torch.load(snapshot))
     snapshot_name = snapshot_path.split('/')[-1]
     

@@ -1,4 +1,5 @@
 import argparse
+import functools
 import logging
 import os
 import random
@@ -27,6 +28,12 @@ def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight:floa
     return loss, loss_ce, loss_dice
 
 
+# Module level (not nested in trainer_fairseg) so DataLoader workers can pickle it:
+# Windows starts workers with spawn, which cannot pickle local functions.
+def seed_worker(seed, worker_id):
+    random.seed(seed + worker_id)
+
+
 def trainer_fairseg(args, model, snapshot_path, multimask_output, low_res):
     from datasets.dataset_fairseg import FairSeg_dataset, RandomGenerator
     logging.basicConfig(filename=snapshot_path + "/log.txt", level=logging.INFO,
@@ -42,11 +49,11 @@ def trainer_fairseg(args, model, snapshot_path, multimask_output, low_res):
                                    [RandomGenerator(output_size=[args.img_size, args.img_size], low_res=[low_res, low_res], center_crop_size=args.center_crop_size, use_normalize=True)]))
     print("The length of train set is: {}".format(len(db_train)))
 
-    def worker_init_fn(worker_id):
-        random.seed(args.seed + worker_id)
-
-    trainloader = DataLoader(db_train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True,
-                             worker_init_fn=worker_init_fn)
+    # persistent_workers: on Windows each worker re-imports the whole script, so restarting
+    # 8 workers every epoch costs ~50 s; keeping them also stops the per-epoch reseed of
+    # `random` in seed_worker from repeating the same augmentation pattern every epoch.
+    trainloader = DataLoader(db_train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, persistent_workers=True,
+                             worker_init_fn=functools.partial(seed_worker, args.seed))
     if args.n_gpu > 1:
         model = nn.DataParallel(model)
     model.train()

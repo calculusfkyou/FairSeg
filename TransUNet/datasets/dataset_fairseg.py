@@ -143,9 +143,37 @@ class TestGenerator(object):
 # attr_to_race = {2: 0, 3: 1, 7:2}
 attr_to_language = {0: 0, 1: 1, 2:2, -1:-1}
 
+# The Hugging Face release renamed 'hispanic' to 'ethnicity', already stores race as
+# 0/1/2 (Asian/Black/White) and age in years, and has no 'pid' key.
+attr_key_aliases = {'hispanic': 'ethnicity'}
+
+def read_attr(data, attr):
+    attr_label = data[attr_key_aliases.get(attr, attr)].item()
+    if attr == "age":
+        attr_label = 0 if attr_label < 60 else 1
+    elif attr == "maritalstatus":
+        if attr_label != 0 and attr_label != -1:
+            attr_label = 1
+    elif attr == 'language':
+        attr_label = attr_to_language[attr_label]
+    return attr_label
+
+# The HF release stores the npz files under Training/ and Test/ subfolders, but the
+# official split is lists/FairSeg_final/*.txt. Index every npz under base_dir by
+# filename so the list files decide the split, not the folder layout.
+def index_npz_files(base_dir):
+    index = {}
+    for dirpath, _, filenames in os.walk(base_dir):
+        for f in filenames:
+            if f.endswith('.npz'):
+                if f in index:
+                    raise ValueError(f'{f} found twice under {base_dir}')
+                index[f] = os.path.join(dirpath, f)
+    return index
+
 class FairSeg_dataset(Dataset):
     def __init__(self, base_dir, split, args, balanced=False, bal_attr='race', \
-                 resolution=224, transform=None, attr_label='race', img_type='fundus_slo'):
+                 resolution=224, transform=None, attr_label='race', img_type='slo_fundus'):
         self.transform = transform  # using transform in torch!
         self.split = split
         self.data_dir = base_dir
@@ -154,8 +182,13 @@ class FairSeg_dataset(Dataset):
         self.needBalance = balanced
         
         list_dir = args.list_dir
-        self.sample_list = open(os.path.join(list_dir, self.split+'.txt')).readlines()
-        
+        with open(os.path.join(list_dir, self.split+'.txt')) as f:
+            self.sample_list = [line.strip() for line in f if line.strip()]
+        self.file_index = index_npz_files(base_dir)
+        missing = [f for f in self.sample_list if f not in self.file_index]
+        if missing:
+            raise FileNotFoundError(f'{len(missing)} files in {self.split}.txt not found under {base_dir}, e.g. {missing[:3]}')
+
         self.attr_label = attr_label
         
         self.bal_attr = bal_attr
@@ -191,26 +224,15 @@ class FairSeg_dataset(Dataset):
         return files
 
     def __getitem__(self, idx):
-        data_path = os.path.join(self.data_dir, self.data_files[idx].strip('\n'))
-        
-        data = np.load(data_path, allow_pickle=True)
-        
-        image, label = data[self.img_type], data['disc_cup']
-        
-        attr_label = data[self.attr_label].item()
-       
-        if self.attr_label == "age":
-            if attr_label < 60:
-                attr_label = 0
-            else:
-                attr_label = 1
-        elif self.attr_label == "maritalstatus":
-            if attr_label != 0 and attr_label != -1: 
-                attr_label = 1
-        elif self.attr_label == 'language':
-            attr_label = attr_to_language[attr_label]
-        
-        pid = data['pid'].item()
+        file_name = self.data_files[idx]
+        data = np.load(self.file_index[file_name], allow_pickle=True)
+
+        image, label = data[self.img_type], data['disc_cup_mask']
+
+        attr_label = read_attr(data, self.attr_label)
+
+        # one image per patient, so the file name stands in for the missing 'pid' key
+        pid = os.path.splitext(file_name)[0]
        
         sample = {'image': image, 'label': label, 'attr_label': attr_label, 'pid': pid}
         if self.transform:
