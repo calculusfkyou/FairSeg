@@ -103,7 +103,11 @@ if __name__ == "__main__":
     else:
         snapshot = os.path.join(snapshot_path, 'best_model.pth')
         if not os.path.exists(snapshot): snapshot = snapshot.replace('best_model', 'epoch_'+str(args.max_epochs-1))
-    net.load_state_dict(torch.load(snapshot))
+    state_dict = torch.load(snapshot, map_location='cpu')
+    # Checkpoints from train.py --n_gpu 2 come from nn.DataParallel, whose keys carry a
+    # 'module.' prefix that the single-GPU net here does not have.
+    state_dict = {(k[len('module.'):] if k.startswith('module.') else k): v for k, v in state_dict.items()}
+    net.load_state_dict(state_dict)
     # Name results after the checkpoint actually loaded (its run folder + epoch file), not
     # snapshot_path, which is rebuilt from --batch_size etc. and need not match --snapshot.
     snapshot_name = os.path.basename(os.path.dirname(os.path.abspath(snapshot))) + '_' + os.path.splitext(os.path.basename(snapshot))[0]
