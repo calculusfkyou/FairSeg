@@ -1,5 +1,6 @@
 import argparse
 import functools
+import io
 import logging
 import os
 import random
@@ -25,13 +26,22 @@ def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight:floa
     return loss, loss_ce, loss_dice
 
 def save_checkpoint(obj, path, retries=3):
-    """torch.save to a temp file, check it loads back, then rename into place, retrying on
-    failure. A one-off Windows write error ("ios_base::badbit set") once truncated the
-    final checkpoint of a 13-hour run, which crashed train.py and lost the weights."""
+    """Save obj to path without torch.save's own file writer.
+
+    On this Windows setup, torch.save(obj, filename) failed with "ios_base::badbit set" /
+    "unexpected pos ... vs ..." on two TransUNet runs (both at the same byte offset on every
+    retry, so not a transient error), while saving other weights worked. So: serialize into
+    memory, write the bytes with plain Python file I/O, check the file loads back, then
+    rename it into place. Later attempts fall back to the legacy (non-zip) format."""
     tmp = path + '.tmp'
     for attempt in range(1, retries + 1):
         try:
-            torch.save(obj, tmp)
+            buf = io.BytesIO()
+            torch.save(obj, buf, _use_new_zipfile_serialization=(attempt == 1))
+            with open(tmp, 'wb') as f:
+                f.write(buf.getbuffer())
+                f.flush()
+                os.fsync(f.fileno())
             torch.load(tmp, map_location='cpu', weights_only=True)
             os.replace(tmp, path)
             return
@@ -114,10 +124,15 @@ def trainer_fairseg(args, model, snapshot_path):
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
         save_interval = 50  # int(max_epoch/6)
-        if epoch_num > int(max_epoch / 2) and (epoch_num + 1) % save_interval == 0:
+        # Intermediate snapshots are optional: a failed save is logged and training goes on.
+        # The last epoch is skipped here because the block below saves it (once).
+        if epoch_num > int(max_epoch / 2) and (epoch_num + 1) % save_interval == 0 and epoch_num < max_epoch - 1:
             save_mode_path = os.path.join(snapshot_path, 'epoch_' + str(epoch_num) + '.pth')
-            save_checkpoint(model.state_dict(), save_mode_path)
-            logging.info("save model to {}".format(save_mode_path))
+            try:
+                save_checkpoint(model.state_dict(), save_mode_path)
+                logging.info("save model to {}".format(save_mode_path))
+            except Exception as e:
+                logging.warning("could not save intermediate snapshot {}, continuing: {}".format(save_mode_path, e))
 
         if epoch_num >= max_epoch - 1:
             save_mode_path = os.path.join(snapshot_path, 'epoch_' + str(epoch_num) + '.pth')

@@ -1,5 +1,6 @@
 from segment_anything import build_sam, SamPredictor
 from segment_anything import sam_model_registry
+import io
 import logging
 import math
 import os
@@ -16,13 +17,22 @@ from icecream import ic
 
 
 def save_checkpoint(obj, path, retries=3):
-    """torch.save to a temp file, check it loads back, then rename into place, retrying on
-    failure. A one-off Windows write error ("ios_base::badbit set") once truncated a
-    TransUNet checkpoint at the end of a 13-hour run, crashing training and losing it."""
+    """Save obj to path without torch.save's own file writer.
+
+    On this Windows setup, torch.save(obj, filename) failed with "ios_base::badbit set" /
+    "unexpected pos ... vs ..." on two TransUNet runs (both at the same byte offset on every
+    retry, so not a transient error), while saving other weights worked. So: serialize into
+    memory, write the bytes with plain Python file I/O, check the file loads back, then
+    rename it into place. Later attempts fall back to the legacy (non-zip) format."""
     tmp = path + '.tmp'
     for attempt in range(1, retries + 1):
         try:
-            torch.save(obj, tmp)
+            buf = io.BytesIO()
+            torch.save(obj, buf, _use_new_zipfile_serialization=(attempt == 1))
+            with open(tmp, 'wb') as f:
+                f.write(buf.getbuffer())
+                f.flush()
+                os.fsync(f.fileno())
             torch.load(tmp, map_location='cpu', weights_only=True)
             os.replace(tmp, path)
             return

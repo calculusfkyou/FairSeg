@@ -10,9 +10,11 @@ $models = @(
     @{ Key = 'transunet';       Name = 'TransUNet (第1次)'; Log = Join-Path $logs 'transunet_train.log';       PerEpoch = 334; Epochs = 300 },
     @{ Key = 'samed';           Name = 'SAMed';             Log = Join-Path $logs 'samed_train.log';           PerEpoch = 500; Epochs = 70 },
     # scripts/rerun_transunet_after_samed.ps1：SAMed 結束後自動重跑 TransUNet
-    @{ Key = 'transunet_rerun'; Name = 'TransUNet (重跑)';  Log = Join-Path $logs 'transunet_rerun_train.log'; PerEpoch = 334; Epochs = 300 }
+    @{ Key = 'transunet_rerun'; Name = 'TransUNet (第2次)'; Log = Join-Path $logs 'transunet_rerun_train.log'; PerEpoch = 334; Epochs = 300 },
+    # scripts/launch_transunet.ps1 <dataset> transunet_run3：改用新存檔方式的第 3 次訓練
+    @{ Key = 'transunet_run3';  Name = 'TransUNet (第3次)'; Log = Join-Path $logs 'transunet_run3_train.log';  PerEpoch = 334; Epochs = 300 }
 )
-$lastKey = 'transunet_rerun'   # 這個模型結束後，監控就停止
+$lastKey = 'transunet_run3'   # 這個模型結束後，監控就停止
 
 function Show-Popup([string]$text, [string]$title, [int]$icon) {
     # 另開程序顯示，避免提示視窗擋住監控迴圈；0x40000 = 置頂
