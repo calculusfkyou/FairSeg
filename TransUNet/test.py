@@ -35,7 +35,8 @@ parser.add_argument('--is_savenii', action="store_true", help='whether to save r
 parser.add_argument('--n_skip', type=int, default=0, help='using number of skip-connect, default is num')
 parser.add_argument('--vit_name', type=str, default='ViT-B_16', help='select one vit model')
 
-parser.add_argument('--test_save_dir', type=str, default='../predictions', help='saving prediction as nii!')
+parser.add_argument('--output_dir', type=str, default='../outputs/transunet_test',
+                    help='test logs go to <output_dir>/<snapshot name>/<attribute>.txt, predictions (--is_savenii) to .../predictions')
 parser.add_argument('--snapshot', type=str, default='', help='checkpoint to test; default: last epoch under the train.py snapshot path')
 parser.add_argument('--deterministic', type=int,  default=1, help='whether use deterministic training')
 parser.add_argument('--base_lr', type=float,  default=0.01, help='segmentation network learning rate')
@@ -103,18 +104,21 @@ if __name__ == "__main__":
         snapshot = os.path.join(snapshot_path, 'best_model.pth')
         if not os.path.exists(snapshot): snapshot = snapshot.replace('best_model', 'epoch_'+str(args.max_epochs-1))
     net.load_state_dict(torch.load(snapshot))
-    snapshot_name = snapshot_path.split('/')[-1]
+    # Name results after the checkpoint actually loaded (its run folder + epoch file), not
+    # snapshot_path, which is rebuilt from --batch_size etc. and need not match --snapshot.
+    snapshot_name = os.path.basename(os.path.dirname(os.path.abspath(snapshot))) + '_' + os.path.splitext(os.path.basename(snapshot))[0]
     
-    log_folder = './results_iclr_rebuttal/test_log_' + args.exp + '_' + str(args.vit_name)+ '_epoch' + str(args.max_epochs)
+    # One log per (checkpoint, attribute): naming it after the snapshot alone appended the
+    # results of every attribute and test list to the same file.
+    log_folder = os.path.join(args.output_dir, snapshot_name)
     os.makedirs(log_folder, exist_ok=True)
-    logging.basicConfig(filename=log_folder + '/'+snapshot_name+".txt", level=logging.INFO, format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')
+    logging.basicConfig(filename=os.path.join(log_folder, args.attribute + ".txt"), level=logging.INFO, format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     logging.info(str(args))
     logging.info(snapshot_name)
 
     if args.is_savenii:
-        args.test_save_dir = '../predictions'
-        test_save_path = os.path.join(args.test_save_dir, args.exp, snapshot_name)
+        test_save_path = os.path.join(log_folder, 'predictions')
         os.makedirs(test_save_path, exist_ok=True)
     else:
         test_save_path = None
