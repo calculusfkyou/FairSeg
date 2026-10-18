@@ -24,7 +24,7 @@ checkpoints/
 
 # ---- Training / inference outputs ----
 # SAMed: train.sh -> outputs/, test.py -> results/ (incl. predictions/, test_log/)
-# TransUNet: train.py -> ../model/, test.py -> ../predictions
+# TransUNet: train.py -> ../model/, test.py -> ../outputs/transunet_test
 outputs/
 results/
 model/

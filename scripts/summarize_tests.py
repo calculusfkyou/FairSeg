@@ -88,8 +88,39 @@ def main():
         lines.append('')
     with open(os.path.join(OUT, 'comparison.md'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
+    with open(os.path.join(OUT, 'paper_tables.md'), 'w', encoding='utf-8') as f:
+        f.write(paper_tables(paper, ours))
     print(f'parsed {len(ours)} values; missing: {missing or "none"}')
-    print('wrote', os.path.join(OUT, 'results.csv'), 'and comparison.md')
+    print('wrote', os.path.join(OUT, 'results.csv'), ', comparison.md and paper_tables.md')
+
+
+# Tables 2-5 of the paper: caption, and group column order as printed there
+PAPER_TABLES = [
+    ('race', 'Table 2', 'race', ['Asian', 'Black', 'White']),
+    ('gender', 'Table 3', 'gender', ['Male', 'Female']),
+    ('language', 'Table 4', 'preferred language', ['English', 'Spanish', 'Others']),
+    ('ethnicity', 'Table 5', 'ethnicity', ['Hispanic', 'Non-Hispanic']),
+]
+
+
+def paper_tables(paper, ours):
+    """Tables 2-5 laid out as in the paper, with a row of our numbers under each baseline."""
+    fmt = lambda v: '—' if v is None else f'{v:.4f}'
+    out = []
+    for attr, num, caption, groups in PAPER_TABLES:
+        cols = ['Overall ES-Dice', 'Overall Dice', 'Overall ES-IoU', 'Overall IoU'] \
+            + [f'{g} Dice' for g in groups] + [f'{g} IoU' for g in groups]
+        out += [f'### {num}: sensitive attribute = {caption}', '',
+                '| Region | Method | ' + ' | '.join(cols) + ' |', '|' + '---|' * (len(cols) + 2)]
+        for region in ('Cup', 'Rim'):
+            for model in ('SAMed', 'TransUNet'):
+                for src, label in ((paper, f'{model} (paper)'), (ours, f'**{model} (ours)**')):
+                    keys = [(attr, model, region, m, '') for m in ('ES-Dice', 'Dice', 'ES-IoU', 'IoU')]
+                    keys += [(attr, model, region, 'Dice', g) for g in groups]
+                    keys += [(attr, model, region, 'IoU', g) for g in groups]
+                    out.append(f'| {region} | {label} | ' + ' | '.join(fmt(src.get(k)) for k in keys) + ' |')
+        out.append('')
+    return '\n'.join(out)
 
 
 if __name__ == '__main__':
