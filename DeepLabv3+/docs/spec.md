@@ -1,7 +1,7 @@
 # DeepLabV3+ 公平性實驗規格：ethnicity、I-score + BDA
 
 - 日期：2026-11-23
-- 狀態：草稿，待使用者確認
+- 狀態：已確認（2026-11-23）
 - 依據：`碩論相關/research.md` 第 3 節「下一階段實驗設定」（11/20 meeting），以及 11/21–11/23 與使用者逐項確認的決定
 - 實作：使用者在 `FairSeg/DeepLabv3+/` 重新撰寫程式，不沿用 `master-thesis-fair-seg` 的程式碼
 
