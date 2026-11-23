@@ -1,4 +1,6 @@
 import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
 from medpy import metric
 
 from datasets.dataset_fairseg import GROUP_NAMES
@@ -43,3 +45,23 @@ def summarize(records, attr):
     out['mean_es_dice'] = (out['cup_es_dice'] + out['rim_es_dice']) / 2
     out['groups'] = groups
     return out
+
+
+class CEDiceLoss(nn.Module):
+    """0.5 · CE (3 classes, unweighted) + 0.5 · soft Dice loss over rim and cup (spec §8).
+
+    Dice sums over the whole batch, the denominator is not squared, and background is left out.
+    """
+
+    def __init__(self, eps=1e-5):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, logits, target):
+        ce = F.cross_entropy(logits, target)
+        prob = logits.softmax(1)[:, 1:]
+        onehot = F.one_hot(target, logits.shape[1]).permute(0, 3, 1, 2)[:, 1:].to(prob.dtype)
+        dims = (0, 2, 3)
+        per_class = (2 * (prob * onehot).sum(dims) + self.eps) / (prob.sum(dims) + onehot.sum(dims) + self.eps)
+        dice = 1 - per_class.mean()
+        return 0.5 * ce + 0.5 * dice, ce, dice
