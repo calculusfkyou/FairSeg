@@ -1,6 +1,6 @@
 # scripts/
 
-重現 FairSeg 論文 SAMed 與 TransUNet baseline 所用的腳本：資料檢查、訓練、測試，以及結果整理。
+重現 FairSeg 論文 SAMed 與 TransUNet baseline 所用的腳本：資料檢查、訓練、測試，以及結果整理。另外也有 DeepLabV3+ 實驗（`DeepLabv3+/`，設定見 `DeepLabv3+/docs/spec.md`）的執行腳本。
 
 - 所有指令都從 **repo 根目錄**執行。
 - Python 腳本使用 `.venv\Scripts\python.exe`，套件版本見 `requirements-lock.txt`。
@@ -20,6 +20,8 @@
 | | `train_transunet.sh` | 只訓練 TransUNet |
 | | `launch_baselines.ps1`、`launch_transunet.ps1` | 在背景啟動上面兩個腳本，並防止電腦睡眠 |
 | | `rerun_transunet_after_samed.ps1` | 等 SAMed 結束後自動重跑 TransUNet（一次性，已用過） |
+| | `deeplabv3plus.sh` | 執行 DeepLabV3+ 的訓練、BDA 或測試 |
+| | `launch_deeplabv3plus.ps1` | 在背景啟動 DeepLabV3+ 正式訓練，並防止電腦睡眠 |
 | | `watch_training.ps1` | 訓練進度視窗與完成提示 |
 | 測試 | `test_baselines.sh` | 用 4 個屬性測試兩個模型 |
 | 結果 | `summarize_tests.py` | 把測試 log 整理成表格，並與論文比較 |
@@ -58,7 +60,10 @@
 .venv/Scripts/python.exe scripts/benchmark_batch.py --model samed --batch_sizes 4 8
 .venv/Scripts/python.exe scripts/benchmark_batch.py --model samed --n_gpu 2 --batch_sizes 16
 .venv/Scripts/python.exe scripts/benchmark_batch.py --model transunet --batch_sizes 24 42 --loader --root_path <DATA>
+.venv/Scripts/python.exe scripts/benchmark_batch.py --model deeplabv3plus --n_gpu 2 --batch_sizes 24
 ```
+
+`--batch_sizes` 是所有 GPU 加總的 batch，`--n_gpu 2` 時每張卡各分一半。`--model deeplabv3plus` 使用 DeepLabV3+ 的模型、SGD 與 `CEDiceLoss`，輸入 224；加上 `--loader` 時用官方 `train.txt` 的影像測量讀取速度。
 
 在 Windows 上，顯存不夠時驅動程式不會報錯，而是借用系統記憶體，速度會變得非常慢。顯存用量接近上限時，輸出會加上提示。
 
@@ -105,6 +110,28 @@ Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Exe
 
 等 `train_baselines.sh` 的 SAMed 結束後，自動以標籤 `transunet_rerun` 重跑 TransUNet。本實驗用過一次（第 2 次 TransUNet 訓練），之後不需要再用。
 
+### `deeplabv3plus.sh`
+
+在 `DeepLabv3+/` 執行 `train.py`、`bda.py` 或 `test.py`，自動加上 `--root_path`，其他參數原樣傳下去。
+
+```bash
+bash scripts/deeplabv3plus.sh <DATA> <train|bda|test> <標籤> [其他參數]
+```
+
+輸出接在 `outputs/deeplabv3plus/<標籤>.log` 後面，用相同標籤重跑不會清掉舊的 log。開始與結束時間寫到 `outputs/deeplabv3plus/runs.txt`，開始那一行另外記下 commit 與完整的執行指令。
+
+DeepLabV3+ 的 `train.py --batch_size` 是**兩張卡加總**的 batch，和 TransUNet 的每卡 batch 不同，也不會自動換算 lr。
+
+### `launch_deeplabv3plus.ps1`
+
+和 `launch_transunet.ps1` 相同的做法：在背景執行 `deeplabv3plus.sh ... train`，訓練期間防止 Windows 睡眠。設定固定為 spec 的正式訓練：`lists/FairSeg_split`、batch 24（2 張 GPU × 12）、lr 0.01、300 epochs、seed 42，輸出到 `outputs/deeplabv3plus/train_seed42/`。
+
+```bash
+Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','scripts\launch_deeplabv3plus.ps1','<DATA>','deeplabv3plus_seed42'
+```
+
+標籤用 `deeplabv3plus_seed42`，`watch_training.ps1` 才認得。開始前，如果 `outputs/deeplabv3plus/train_seed42/` 已經存在，會先改名保留（加上 `_before_<標籤>_<時間>`）。
+
 ### `watch_training.ps1`
 
 每分鐘更新一次的訓練進度視窗，顯示每個模型目前的 epoch、loss 和預計完成時間。訓練完成、出錯，或訓練程序意外消失時，會跳出置頂提示視窗。
@@ -113,7 +140,7 @@ Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-Exe
 Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','scripts\watch_training.ps1'
 ```
 
-要監控的訓練寫在腳本開頭的 `$models`，以 `runs.txt` 中的標籤區分。新增其他訓練時，要在這裡加上一筆。關掉這個視窗不會影響訓練。
+要監控的訓練寫在腳本開頭的 `$models`，以 `runs.txt` 中的標籤區分。新增其他訓練時，要在這裡加上一筆。結束紀錄會從 `outputs/baseline/runs.txt` 與 `outputs/deeplabv3plus/runs.txt` 兩個檔案找。關掉這個視窗不會影響訓練。
 
 ## 測試
 

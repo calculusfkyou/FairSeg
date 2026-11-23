@@ -1,9 +1,11 @@
 """Measure peak GPU memory and training-step time per batch size for the SAMed / TransUNet
-baselines, and how fast the official DataLoader can feed images.
+baselines and DeepLabV3+, and how fast the DataLoader can feed images.
 
 Run from the repo root, e.g.
   python scripts/benchmark_batch.py --model samed --batch_sizes 4 8 12 16
   python scripts/benchmark_batch.py --model transunet --batch_sizes 8 16 24 32 --loader --root_path ...
+  python scripts/benchmark_batch.py --model deeplabv3plus --n_gpu 2 --batch_sizes 24
+--batch_sizes is the total batch; with --n_gpu 2 each GPU gets half.
 """
 import argparse, os, sys, time, types
 import numpy as np
@@ -14,7 +16,7 @@ from torch.nn import CrossEntropyLoss
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', choices=['samed', 'transunet'], required=True)
+parser.add_argument('--model', choices=['samed', 'transunet', 'deeplabv3plus'], required=True)
 parser.add_argument('--batch_sizes', type=int, nargs='+', default=[4, 8])
 parser.add_argument('--steps', type=int, default=10, help='timed steps per batch size (after 3 warm-up steps)')
 parser.add_argument('--n_gpu', type=int, default=1, help='>1 wraps the model in nn.DataParallel, as the trainers do')
@@ -23,13 +25,21 @@ parser.add_argument('--root_path')
 parser.add_argument('--num_workers', type=int, default=8)
 args = parser.parse_args()
 
-model_dir = os.path.join(REPO, 'SAMed' if args.model == 'samed' else 'TransUNet')
+model_dir = os.path.join(REPO, {'samed': 'SAMed', 'transunet': 'TransUNet', 'deeplabv3plus': 'DeepLabv3+'}[args.model])
 os.chdir(model_dir)
 sys.path.insert(0, model_dir)
-from utils import DiceLoss
+if args.model == 'deeplabv3plus':
+    from utils import CEDiceLoss
+else:
+    from utils import DiceLoss
 
 
 def build():
+    if args.model == 'deeplabv3plus':
+        from networks.deeplabv3plus import DeepLabV3Plus
+        net = DeepLabV3Plus().cuda()
+        opt = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
+        return net, opt, 224, 224
     if args.model == 'samed':
         from segment_anything import sam_model_registry
         from sam_lora_image_encoder import LoRA_Sam
@@ -50,6 +60,8 @@ def step(net, opt, x, y, ce, dice):
     if args.model == 'samed':
         logits = net(x, True, 512)['low_res_logits']
         loss = 0.2 * ce(logits, y) + 0.8 * dice(logits, y, softmax=True)
+    elif args.model == 'deeplabv3plus':
+        loss = dice(net(x), y)[0]   # dice is CEDiceLoss here: 0.5 CE + 0.5 Dice
     else:
         logits = net(x)
         loss = 0.5 * ce(logits, y) + 0.5 * dice(logits, y, softmax=True)
@@ -63,7 +75,7 @@ def main():
     if args.n_gpu > 1:
         net = nn.DataParallel(net)
     net.train()
-    ce, dice = CrossEntropyLoss(), DiceLoss(3)
+    ce, dice = CrossEntropyLoss(), (CEDiceLoss() if args.model == 'deeplabv3plus' else DiceLoss(3))
     print(f'{args.model}  input {img}  GPUs {args.n_gpu} ({torch.cuda.get_device_name(0)})')
     print(f'{"batch":>5} {"peak mem GB":>12} {"s/step":>8} {"img/s":>7}')
     for bs in args.batch_sizes:
@@ -96,13 +108,17 @@ def main():
 
     if args.loader:
         from torch.utils.data import DataLoader
-        if args.model == 'samed':
-            from datasets.dataset_fairseg import FairSeg_dataset, RandomGenerator
-            tf = RandomGenerator([512, 512], [128, 128], 512, use_normalize=True)
+        if args.model == 'deeplabv3plus':
+            from datasets.dataset_fairseg import FairSegDataset, RandomGenerator
+            ds = FairSegDataset(args.root_path, '../TransUNet/lists/FairSeg_final/train.txt', RandomGenerator())
         else:
-            from datasets.dataset_fairseg import FairSeg_dataset, RandomGenerator
-            tf = RandomGenerator([224, 224], 512, use_normalize=True)
-        ds = FairSeg_dataset(args.root_path, 'train', types.SimpleNamespace(list_dir='lists/FairSeg_final'), transform=tf)
+            if args.model == 'samed':
+                from datasets.dataset_fairseg import FairSeg_dataset, RandomGenerator
+                tf = RandomGenerator([512, 512], [128, 128], 512, use_normalize=True)
+            else:
+                from datasets.dataset_fairseg import FairSeg_dataset, RandomGenerator
+                tf = RandomGenerator([224, 224], 512, use_normalize=True)
+            ds = FairSeg_dataset(args.root_path, 'train', types.SimpleNamespace(list_dir='lists/FairSeg_final'), transform=tf)
         bs = args.batch_sizes[0]
         loader = DataLoader(ds, batch_size=bs, shuffle=True, num_workers=args.num_workers, pin_memory=True)
         it = iter(loader)

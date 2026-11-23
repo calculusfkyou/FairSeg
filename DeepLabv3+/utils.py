@@ -1,9 +1,16 @@
+import io
+import logging
+import os
+import random
+import time
+
 import numpy as np
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from medpy import metric
 
-from datasets.dataset_fairseg import GROUP_NAMES
+from datasets.dataset_fairseg import ATTRS, GROUP_NAMES
 
 METRICS = ('cup_dice', 'rim_dice', 'cup_iou', 'rim_iou')
 
@@ -65,3 +72,56 @@ class CEDiceLoss(nn.Module):
         per_class = (2 * (prob * onehot).sum(dims) + self.eps) / (prob.sum(dims) + onehot.sum(dims) + self.eps)
         dice = 1 - per_class.mean()
         return 0.5 * ce + 0.5 * dice, ce, dice
+
+
+def predict_records(model, loader, mask_channels=None):
+    """Per-image metrics (argmax prediction) with each image's 'attrs' and 'name'."""
+    # Unwrap DataParallel: it would re-replicate the model for every batch-1 val image.
+    net = model.module if isinstance(model, nn.DataParallel) else model
+    net.eval()
+    device = next(net.parameters()).device
+    records = []
+    with torch.no_grad():
+        for batch in loader:
+            preds = net(batch['image'].to(device), mask_channels=mask_channels).argmax(1).cpu().numpy()
+            for i, pred in enumerate(preds):
+                rec = case_metrics(pred, batch['label'][i].numpy())
+                rec['attrs'] = dict(zip(ATTRS, batch['attrs'][i].tolist()))
+                rec['name'] = batch['name'][i]
+                records.append(rec)
+    return records
+
+
+def save_checkpoint(obj, path, retries=3):
+    """Save obj to path without torch.save's own file writer (copied from TransUNet/trainer.py).
+
+    On this Windows setup, torch.save(obj, filename) corrupted checkpoints at a fixed byte offset.
+    So: serialize into memory, write the bytes with plain file I/O, check the file loads back,
+    then rename it into place. Later attempts fall back to the legacy (non-zip) format."""
+    tmp = path + '.tmp'
+    for attempt in range(1, retries + 1):
+        try:
+            buf = io.BytesIO()
+            torch.save(obj, buf, _use_new_zipfile_serialization=(attempt == 1))
+            with open(tmp, 'wb') as f:
+                f.write(buf.getbuffer())
+                f.flush()
+                os.fsync(f.fileno())
+            torch.load(tmp, map_location='cpu', weights_only=True)
+            os.replace(tmp, path)
+            return
+        except Exception as e:
+            logging.warning('saving %s failed (attempt %d/%d): %s', path, attempt, retries, e)
+            if attempt == retries:
+                raise
+            time.sleep(30)
+
+
+# Module level so DataLoader workers can pickle it: Windows starts workers with spawn.
+def seed_worker(seed, worker_id):
+    random.seed(seed + worker_id)
+
+
+def state_dict_of(model):
+    """state_dict without DataParallel's 'module.' prefix."""
+    return (model.module if isinstance(model, nn.DataParallel) else model).state_dict()

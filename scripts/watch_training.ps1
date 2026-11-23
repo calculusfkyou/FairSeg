@@ -5,6 +5,9 @@
 $repo = Split-Path -Parent $PSScriptRoot
 $logs = Join-Path $repo 'outputs\baseline'
 $runs = Join-Path $logs 'runs.txt'
+# scripts/deeplabv3plus.sh 的開始與結束紀錄寫在另一個 runs.txt
+$runFiles = @($runs, (Join-Path $repo 'outputs\deeplabv3plus\runs.txt'))
+function Get-RunText { ($runFiles | Where-Object { Test-Path $_ } | ForEach-Object { Get-Content $_ -Raw }) -join "`n" }
 # 每輪步數與總步數：TransUNet 8000/24 = 334 步 x 300 輪；SAMed 8000/16 = 500 步，第 70 輪停止
 $models = @(
     @{ Key = 'transunet';       Name = 'TransUNet (第1次)'; Log = Join-Path $logs 'transunet_train.log';       PerEpoch = 334; Epochs = 300 },
@@ -12,9 +15,11 @@ $models = @(
     # scripts/rerun_transunet_after_samed.ps1：SAMed 結束後自動重跑 TransUNet
     @{ Key = 'transunet_rerun'; Name = 'TransUNet (第2次)'; Log = Join-Path $logs 'transunet_rerun_train.log'; PerEpoch = 334; Epochs = 300 },
     # scripts/launch_transunet.ps1 <dataset> transunet_run3：改用新存檔方式的第 3 次訓練
-    @{ Key = 'transunet_run3';  Name = 'TransUNet (第3次)'; Log = Join-Path $logs 'transunet_run3_train.log';  PerEpoch = 334; Epochs = 300 }
+    @{ Key = 'transunet_run3';  Name = 'TransUNet (第3次)'; Log = Join-Path $logs 'transunet_run3_train.log';  PerEpoch = 334; Epochs = 300 },
+    # scripts/launch_deeplabv3plus.ps1 <dataset> deeplabv3plus_seed42：7000/24 = 292 步 x 300 輪
+    @{ Key = 'deeplabv3plus_seed42'; Name = 'DeepLabV3+ (seed 42)'; Log = Join-Path $repo 'outputs\deeplabv3plus\deeplabv3plus_seed42.log'; PerEpoch = 292; Epochs = 300 }
 )
-$lastKey = 'transunet_run3'   # 這個模型結束後，監控就停止
+$lastKey = 'deeplabv3plus_seed42'   # 這個模型結束後，監控就停止
 
 function Show-Popup([string]$text, [string]$title, [int]$icon) {
     # 另開程序顯示，避免提示視窗擋住監控迴圈；0x40000 = 置頂
@@ -34,7 +39,7 @@ function Get-LastIteration([string]$log) {
 
 function Test-TrainingAlive {
     $p = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match 'train\.py' -and $_.CommandLine -match 'FairSeg_final' }
+        Where-Object { $_.CommandLine -match 'train\.py' -and $_.CommandLine -match 'FairSeg_final|FairSeg_split' }
     return [bool]$p
 }
 
@@ -42,12 +47,12 @@ $notified = @{}
 $rate = @{}          # 每個模型第一次看到的 (時間, 步數)，用來估算速度
 $deadChecks = 0
 # 啟動前就已經結束的模型不再跳提示（例如重新開啟監控視窗時）
-$startText = if (Test-Path $runs) { Get-Content $runs -Raw } else { '' }
+$startText = Get-RunText
 foreach ($m in $models) { if ($startText -match "(?m)^$($m.Key) exit \d+") { $notified[$m.Key] = $true } }
 Show-Popup "訓練監控已啟動。`n完成或中途停止時會再跳出提示。" 'FairSeg 訓練監控' 64
 
 while ($true) {
-    $runText = if (Test-Path $runs) { Get-Content $runs -Raw } else { '' }
+    $runText = Get-RunText
     $now = Get-Date
     Clear-Host
     Write-Host "FairSeg baseline 訓練監控    更新時間 $($now.ToString('MM/dd HH:mm:ss'))（每分鐘更新）"
@@ -64,7 +69,7 @@ while ($true) {
                 if ($code -eq '0') {
                     Show-Popup "$($m.Name) 訓練完成！`n$($done.Groups[2].Value.Trim())" 'FairSeg 訓練監控' 64
                 } else {
-                    Show-Popup "$($m.Name) 訓練出錯結束 (exit $code)。`n請查看 outputs\baseline\$($m.Key)_train.log" 'FairSeg 訓練監控' 16
+                    Show-Popup "$($m.Name) 訓練出錯結束 (exit $code)。`n請查看 $($m.Log)" 'FairSeg 訓練監控' 16
                 }
             }
             continue
