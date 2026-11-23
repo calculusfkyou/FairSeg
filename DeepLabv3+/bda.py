@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from datasets.dataset_fairseg import ATTRS, FairSegDataset, TestGenerator
 from iscore import binarize, prefix_unions, rank_unique, run_bda
 from networks.deeplabv3plus import DeepLabV3Plus, apply_channel_mask
-from utils import case_metrics, predict_records, summarize
+from utils import case_metrics, ensure_new, file_sha256, predict_records, summarize
 
 # Bit-for-bit reproducible inference: the cache check below compares per-image Dice exactly.
 torch.backends.cudnn.deterministic = True
@@ -91,6 +91,7 @@ def records_from_cache(model, cache, channels, batch_size=50):
 
 
 def main(args):
+    ensure_new(os.path.join(args.output_dir, 'args.json'))
     ckpt = torch.load(args.checkpoint, map_location='cpu', weights_only=True)
     model = DeepLabV3Plus(pretrained=False)
     model.load_state_dict(ckpt['state_dict'])
@@ -146,7 +147,9 @@ def main(args):
                 log(f'{n}/{len(candidates)} evaluated, K {k}, {len(union)} channels: mean Dice {row["mean_dice"]:.4f}, '
                     f'mean ES-Dice {row["mean_es_dice"]:.4f} ({time.time() - t:.0f} s)')
 
-    selection = {}
+    # test.py refuses a selection whose checkpoint file differs from its --checkpoint
+    selection = {'checkpoint': {'path': os.path.abspath(args.checkpoint), 'epoch': ckpt['epoch'],
+                                'sha256': file_sha256(args.checkpoint)}}
     for key, metric in (('dice', 'mean_dice'), ('es', 'mean_es_dice')):
         best = choose_k(rows, metric)
         selection[key] = {'K': best['K'], 'channels': list(candidates[best['K']])}

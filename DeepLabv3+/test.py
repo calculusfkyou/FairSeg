@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 from datasets.dataset_fairseg import ATTRS, FairSegDataset, TestGenerator
 from networks.deeplabv3plus import DeepLabV3Plus
-from utils import predict_records, summarize
+from utils import ensure_new, file_sha256, predict_records, summarize
 
 # Same inference settings as bda.py, so val (BDA) and test numbers come from identical arithmetic.
 torch.backends.cudnn.deterministic = True
@@ -31,9 +31,18 @@ parser.add_argument('--output', required=True, help='result JSON; never overwrit
 parser.add_argument('--num_workers', type=int, default=4)
 
 
-def ensure_new(path):
-    if os.path.exists(path):
-        raise FileExistsError(f'{path} already exists; results are never overwritten, choose another --output')
+def load_selection(path, key, checkpoint):
+    """X* = selection[key] from bda.py; refused if it belongs to another checkpoint or would repeat a test run."""
+    with open(path) as f:
+        sel = json.load(f)
+    if sel['checkpoint']['sha256'] != file_sha256(checkpoint):
+        raise ValueError(f'{path} was computed on {sel["checkpoint"]["path"]}, not on {checkpoint}')
+    chosen = sel[key]
+    if not chosen['channels']:   # spec §10.7
+        raise ValueError(f'K_{key} = 0 in {path}: val chose no mask, so reuse the unmasked test result')
+    if key == 'es' and chosen['K'] == sel['dice']['K']:   # spec §10.7: each X* runs on test once
+        raise ValueError(f'K_es = K_dice = {chosen["K"]} in {path}: reuse the --key dice test result')
+    return chosen
 
 
 def print_summary(attr, s):
@@ -52,8 +61,7 @@ def main(args):
         parser.error('--selection and --key must be given together')
     mask = []
     if args.selection:
-        with open(args.selection) as f:
-            chosen = json.load(f)[args.key]
+        chosen = load_selection(args.selection, args.key, args.checkpoint)
         mask = chosen['channels']
         print(f'mask: K_{args.key} = {chosen["K"]} from {args.selection}, {len(mask)} channels', flush=True)
 

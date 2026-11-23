@@ -2,6 +2,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import math
+import warnings
 
 import numpy as np
 
@@ -38,6 +39,13 @@ def test_summarize_skips_empty_group():
     s = summarize([_rec(0.8, 0), _rec(0.6, 0)], 'gender')            # 沒有 Male
     assert s['groups']['Male']['n'] == 0
     assert math.isfinite(s['cup_es_dice']) and abs(s['cup_es_dice'] - 0.7) < 1e-9
+
+
+def test_summarize_warns_on_empty_group():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        summarize([_rec(0.8, 0)], 'gender')                          # no Male
+    assert any('gender' in str(w.message) and 'Male' in str(w.message) for w in caught)
 
 
 if __name__ == '__main__':

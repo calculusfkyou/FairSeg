@@ -2,6 +2,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import tempfile
+import types
 
 import torch
 import torch.nn as nn
@@ -9,7 +10,7 @@ import torch.nn.functional as F
 
 from datasets.dataset_fairseg import ATTRS
 from networks.deeplabv3plus import DeepLabV3Plus
-from trainer import update_best
+from trainer import trainer_fairseg, update_best
 from utils import predict_records, save_checkpoint, state_dict_of
 
 
@@ -65,6 +66,16 @@ def test_checkpoint_roundtrip_with_summaries():
         save_checkpoint(obj, path)
         back = torch.load(path, map_location='cpu', weights_only=True)
     assert back['epoch'] == 3 and back['val'] == obj['val'] and torch.equal(back['state_dict']['w'], obj['state_dict']['w'])
+
+
+def test_trainer_refuses_existing_output():
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, 'args.json'), 'w').close()          # an earlier run's folder
+        try:
+            trainer_fairseg(types.SimpleNamespace(output_dir=d), None)
+        except FileExistsError:
+            return
+        raise AssertionError('expected FileExistsError')
 
 
 if __name__ == '__main__':

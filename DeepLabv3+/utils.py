@@ -1,8 +1,10 @@
+import hashlib
 import io
 import logging
 import os
 import random
 import time
+import warnings
 
 import numpy as np
 import torch
@@ -43,6 +45,8 @@ def summarize(records, attr):
     groups = {}
     for code, name in enumerate(GROUP_NAMES[attr]):
         members = [r for r in records if r['attrs'][attr] == code]
+        if not members:   # spec §6: shown once per attribute and group
+            warnings.warn(f'{attr}: no {name} images, so {name} is left out of the ES sum')
         groups[name] = {'n': len(members),
                         **{k: float(np.mean([r[k] for r in members])) if members else None for k in METRICS}}
     for k in METRICS:
@@ -90,6 +94,16 @@ def predict_records(model, loader, mask_channels=None):
                 rec['name'] = batch['name'][i]
                 records.append(rec)
     return records
+
+
+def ensure_new(path):
+    if os.path.exists(path):
+        raise FileExistsError(f'{path} already exists; results are never overwritten, choose another output')
+
+
+def file_sha256(path):
+    with open(path, 'rb') as f:
+        return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
 def save_checkpoint(obj, path, retries=3):

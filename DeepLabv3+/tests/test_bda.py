@@ -1,11 +1,13 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import tempfile
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from bda import choose_k, extract_val, iscore_inputs, records_from_cache
+from bda import choose_k, extract_val, iscore_inputs, main, parser, records_from_cache
 from networks.deeplabv3plus import DeepLabV3Plus
 from utils import predict_records
 
@@ -52,6 +54,18 @@ def test_cache_path_matches_full_model():
         assert records_from_cache(net, cache, channels, batch_size=1) == \
             predict_records(net, loader, mask_channels=channels or None)
     assert records_from_cache(net, cache, half) != records_from_cache(net, cache, [])
+
+
+def test_main_refuses_existing_output():
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, 'args.json'), 'w').close()          # an earlier run's folder
+        args = parser.parse_args(['--root_path', 'x', '--checkpoint', os.path.join(d, 'missing.pth'),
+                                  '--attribute', 'ethnicity', '--output_dir', d])
+        try:
+            main(args)                                           # must stop before loading the checkpoint
+        except FileExistsError:
+            return
+        raise AssertionError('expected FileExistsError')
 
 
 if __name__ == '__main__':

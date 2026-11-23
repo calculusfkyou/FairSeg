@@ -10,7 +10,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from datasets.dataset_fairseg import ATTRS, FairSegDataset, RandomGenerator, TestGenerator
-from utils import CEDiceLoss, predict_records, save_checkpoint, seed_worker, state_dict_of, summarize
+from utils import CEDiceLoss, ensure_new, predict_records, save_checkpoint, seed_worker, state_dict_of, summarize
 
 
 def update_best(best, epoch, summaries):
@@ -25,6 +25,7 @@ def update_best(best, epoch, summaries):
 
 
 def trainer_fairseg(args, model):
+    ensure_new(os.path.join(args.output_dir, 'args.json'))   # an earlier run's checkpoints would be overwritten
     os.makedirs(args.output_dir, exist_ok=True)
     logging.basicConfig(filename=os.path.join(args.output_dir, 'log.txt'), level=logging.INFO,
                         format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')

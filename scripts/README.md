@@ -122,6 +122,8 @@ bash scripts/deeplabv3plus.sh <DATA> <train|bda|test> <標籤> [其他參數]
 
 DeepLabV3+ 的 `train.py --batch_size` 是**兩張卡加總**的 batch，和 TransUNet 的每卡 batch 不同，也不會自動換算 lr。
 
+結果不會被覆蓋：`train` 與 `bda` 的 `--output_dir` 裡已經有 `args.json`（之前跑過）時，`test` 的 `--output` 已經存在時，都會直接停止。`test --selection` 也會確認 `selection.json` 是用同一個 `--checkpoint` 算出來的，並拒絕 spec §10.7 不需要另外跑的組合：選到 K = 0，或 K_ES = K_Dice 時的 `--key es`（沿用 `--key dice` 的結果）。
+
 ### `launch_deeplabv3plus.ps1`
 
 和 `launch_transunet.ps1` 相同的做法：在背景執行 `deeplabv3plus.sh ... train`，訓練期間防止 Windows 睡眠。設定固定為 spec 的正式訓練：`lists/FairSeg_split`、batch 24（2 張 GPU × 12）、lr 0.01、300 epochs、seed 42，輸出到 `outputs/deeplabv3plus/train_seed42/`。
