@@ -2,6 +2,7 @@
 
 - 日期：2026-11-23
 - 狀態：已確認（2026-11-23）
+- 修訂：2026-11-24 訓練改用單卡（§8 Batch size），原因見該列
 - 依據：`碩論相關/research.md` 第 3 節「下一階段實驗設定」（11/20 meeting），以及 11/21–11/23 與使用者逐項確認的決定
 - 實作：使用者在 `FairSeg/DeepLabv3+/` 重新撰寫程式，不沿用 `master-thesis-fair-seg` 的程式碼
 
@@ -183,7 +184,7 @@ Head 的初始化方式【交給實作】（experiment_001 用 Kaiming normal）
 | ε | **【我的建議】** 1e-5（FairSeg 官方的值） |
 | Optimizer | SGD，momentum 0.9，weight decay 1e-4，套用到所有參數 |
 | Learning rate | 0.01，每個 iteration 依 poly 衰減：lr = 0.01 × (1 − iter / max_iter)^0.9，max_iter = 300 × 每 epoch iteration 數 |
-| Batch size | 總共 24；DataParallel 分到兩張卡，每張 12（BN 統計量各卡分開算） |
+| Batch size | 24，單卡（GPU 0），BN 統計量用整個 batch 24 計算。原本是 DataParallel 分到兩張卡、每張 12（BN 各卡分開算），11/24 改為單卡：這台 Windows 上 DataParallel 的主程序每個 epoch 多佔約 0.43 GB 系統記憶體且不釋放，11/23 的正式訓練在第 152 個 epoch 用盡記憶體中斷；單卡實測 4 個 epoch 記憶體固定在約 9.5 GB。總 batch、學習率與 loss 的算法都不變（DataParallel 本來就在 GPU 0 上對整批 24 張算 loss） |
 | Epochs | 300 |
 | 資料增強 | 第 5.4 節 |
 | Seed | 42（Python、NumPy、PyTorch）；cuDNN deterministic【交給實作】 |

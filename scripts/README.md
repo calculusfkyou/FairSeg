@@ -60,7 +60,7 @@
 .venv/Scripts/python.exe scripts/benchmark_batch.py --model samed --batch_sizes 4 8
 .venv/Scripts/python.exe scripts/benchmark_batch.py --model samed --n_gpu 2 --batch_sizes 16
 .venv/Scripts/python.exe scripts/benchmark_batch.py --model transunet --batch_sizes 24 42 --loader --root_path <DATA>
-.venv/Scripts/python.exe scripts/benchmark_batch.py --model deeplabv3plus --n_gpu 2 --batch_sizes 24
+.venv/Scripts/python.exe scripts/benchmark_batch.py --model deeplabv3plus --n_gpu 1 --batch_sizes 24
 ```
 
 `--batch_sizes` 是所有 GPU 加總的 batch，`--n_gpu 2` 時每張卡各分一半。`--model deeplabv3plus` 使用 DeepLabV3+ 的模型、SGD 與 `CEDiceLoss`，輸入 224；加上 `--loader` 時用官方 `train.txt` 的影像測量讀取速度。
@@ -120,13 +120,13 @@ bash scripts/deeplabv3plus.sh <DATA> <train|bda|test> <標籤> [其他參數]
 
 輸出接在 `outputs/deeplabv3plus/<標籤>.log` 後面，用相同標籤重跑不會清掉舊的 log。開始與結束時間寫到 `outputs/deeplabv3plus/runs.txt`，開始那一行另外記下 commit 與完整的執行指令。
 
-DeepLabV3+ 的 `train.py --batch_size` 是**兩張卡加總**的 batch，和 TransUNet 的每卡 batch 不同，也不會自動換算 lr。
+DeepLabV3+ 的 `train.py --batch_size` 是**所有 GPU 加總**的 batch，和 TransUNet 的每卡 batch 不同，也不會自動換算 lr。`--n_gpu` 預設為 1：`--n_gpu 2` 會用 `nn.DataParallel`，在這台 Windows 上主程序每個 epoch 多佔約 0.43 GB 系統記憶體且不釋放，長時間訓練會用盡記憶體（見 spec §8）。
 
 結果不會被覆蓋：`train` 與 `bda` 的 `--output_dir` 裡已經有 `args.json`（之前跑過）時，`test` 的 `--output` 已經存在時，都會直接停止。`test --selection` 也會確認 `selection.json` 是用同一個 `--checkpoint` 算出來的，並拒絕 spec §10.7 不需要另外跑的組合：選到 K = 0，或 K_ES = K_Dice 時的 `--key es`（沿用 `--key dice` 的結果）。
 
 ### `launch_deeplabv3plus.ps1`
 
-和 `launch_transunet.ps1` 相同的做法：在背景執行 `deeplabv3plus.sh ... train`，訓練期間防止 Windows 睡眠。設定固定為 spec 的正式訓練：`lists/FairSeg_split`、batch 24（2 張 GPU × 12）、lr 0.01、300 epochs、seed 42，輸出到 `outputs/deeplabv3plus/train_seed42/`。
+和 `launch_transunet.ps1` 相同的做法：在背景執行 `deeplabv3plus.sh ... train`，訓練期間防止 Windows 睡眠。設定固定為 spec 的正式訓練：`lists/FairSeg_split`、batch 24（單卡）、lr 0.01、300 epochs、seed 42，輸出到 `outputs/deeplabv3plus/train_seed42/`。
 
 ```bash
 Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','scripts\launch_deeplabv3plus.ps1','<DATA>','deeplabv3plus_seed42'

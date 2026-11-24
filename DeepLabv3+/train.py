@@ -12,7 +12,9 @@ parser.add_argument('--output_dir', default='../outputs/deeplabv3plus/train_seed
 parser.add_argument('--max_epochs', type=int, default=300)
 parser.add_argument('--batch_size', type=int, default=24,
                     help='total batch over all GPUs (unlike TransUNet, not per GPU); lr is not rescaled')
-parser.add_argument('--n_gpu', type=int, default=2)
+parser.add_argument('--n_gpu', type=int, default=1,
+                    help='more than 1 uses nn.DataParallel, which leaks ~0.43 GB of host memory per epoch on this '
+                         'Windows setup (spec section 8)')
 parser.add_argument('--base_lr', type=float, default=0.01)
 parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--num_workers', type=int, default=8)

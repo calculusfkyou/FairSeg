@@ -8,6 +8,13 @@ $runs = Join-Path $logs 'runs.txt'
 # scripts/deeplabv3plus.sh 的開始與結束紀錄寫在另一個 runs.txt
 $runFiles = @($runs, (Join-Path $repo 'outputs\deeplabv3plus\runs.txt'))
 function Get-RunText { ($runFiles | Where-Object { Test-Path $_ } | ForEach-Object { Get-Content $_ -Raw }) -join "`n" }
+# 同一個標籤重跑時，runs.txt 和 log 都是接在舊紀錄後面：只看最後一次 "<標籤> ... started" 之後的部分，
+# 否則會讀到上一次的 exit 紀錄或 iteration
+function Get-LatestRunText([string]$text, [string]$key) {
+    $starts = [regex]::Matches($text, "(?m)^$([regex]::Escape($key)) .*started")
+    if ($starts.Count -eq 0) { return $text }
+    return $text.Substring($starts[$starts.Count - 1].Index)
+}
 # 每輪步數與總步數：TransUNet 8000/24 = 334 步 x 300 輪；SAMed 8000/16 = 500 步，第 70 輪停止
 $models = @(
     @{ Key = 'transunet';       Name = 'TransUNet (第1次)'; Log = Join-Path $logs 'transunet_train.log';       PerEpoch = 334; Epochs = 300 },
@@ -29,7 +36,11 @@ function Show-Popup([string]$text, [string]$title, [int]$icon) {
 
 function Get-LastIteration([string]$log) {
     if (-not (Test-Path $log)) { return $null }
-    $line = Get-Content $log -Tail 200 -ErrorAction SilentlyContinue |
+    $tail = @(Get-Content $log -Tail 200 -ErrorAction SilentlyContinue)
+    # deeplabv3plus.sh 每次開始都在 log 寫一行 "... started"：只看最後一次開始之後的 iteration
+    $start = -1
+    for ($i = $tail.Count - 1; $i -ge 0; $i--) { if ($tail[$i] -match ' started ') { $start = $i; break } }
+    $line = $tail[($start + 1)..($tail.Count)] |
         Where-Object { $_ -match '^iteration (\d+) : loss : ([\d.]+)' } | Select-Object -Last 1
     if ($line -and $line -match '^iteration (\d+) : loss : ([\d.]+)') {
         return @{ Iter = [int]$Matches[1]; Loss = [double]$Matches[2] }
@@ -48,7 +59,7 @@ $rate = @{}          # 每個模型第一次看到的 (時間, 步數)，用來�
 $deadChecks = 0
 # 啟動前就已經結束的模型不再跳提示（例如重新開啟監控視窗時）
 $startText = Get-RunText
-foreach ($m in $models) { if ($startText -match "(?m)^$($m.Key) exit \d+") { $notified[$m.Key] = $true } }
+foreach ($m in $models) { if ((Get-LatestRunText $startText $m.Key) -match "(?m)^$($m.Key) exit \d+") { $notified[$m.Key] = $true } }
 Show-Popup "訓練監控已啟動。`n完成或中途停止時會再跳出提示。" 'FairSeg 訓練監控' 64
 
 while ($true) {
@@ -59,7 +70,7 @@ while ($true) {
     Write-Host ('-' * 70)
 
     foreach ($m in $models) {
-        $done = [regex]::Match($runText, "(?m)^$($m.Key) exit (\d+)\s+finished (.+)")
+        $done = [regex]::Match((Get-LatestRunText $runText $m.Key), "(?m)^$($m.Key) exit (\d+)\s+finished (.+)")
         if ($done.Success) {
             $code = $done.Groups[1].Value
             $status = if ($code -eq '0') { '已完成' } else { "出錯結束 (exit $code)" }
@@ -79,7 +90,8 @@ while ($true) {
         $total = $m.PerEpoch * $m.Epochs
         $epoch = [math]::Ceiling($it.Iter / $m.PerEpoch)
         $pct = 100.0 * $it.Iter / $total
-        if (-not $rate[$m.Key]) { $rate[$m.Key] = @{ T = $now; I = $it.Iter } }
+        # 監控視窗開著時重跑：步數變小就重新估算速度
+        if (-not $rate[$m.Key] -or $it.Iter -lt $rate[$m.Key].I) { $rate[$m.Key] = @{ T = $now; I = $it.Iter } }
         $eta = '計算中（約 2 分鐘後顯示）'
         $dt = ($now - $rate[$m.Key].T).TotalSeconds
         $di = $it.Iter - $rate[$m.Key].I
@@ -90,7 +102,7 @@ while ($true) {
         Write-Host ("{0,-18} 第 {1}/{2} 輪  ({3:N1}%)  loss {4:N4}  {5}" -f $m.Name, $epoch, $m.Epochs, $pct, $it.Loss, $eta)
     }
 
-    $allDone = $runText -match "(?m)^$lastKey exit \d+"
+    $allDone = (Get-LatestRunText $runText $lastKey) -match "(?m)^$lastKey exit \d+"
     if ($allDone) {
         Write-Host ('-' * 70)
         Write-Host '全部訓練已結束。可以關閉此視窗。'

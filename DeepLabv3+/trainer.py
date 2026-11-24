@@ -45,7 +45,7 @@ def trainer_fairseg(args, model):
                            pin_memory=True, persistent_workers=persistent)
 
     model = model.cuda()
-    if args.n_gpu > 1:
+    if args.n_gpu > 1:   # leaks ~0.43 GB of host memory per epoch on this Windows setup; formal runs use 1 GPU
         model = nn.DataParallel(model, device_ids=list(range(args.n_gpu)))
     criterion = CEDiceLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.base_lr, momentum=0.9, weight_decay=1e-4)
